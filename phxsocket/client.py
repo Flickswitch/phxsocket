@@ -6,6 +6,7 @@ import traceback
 from urllib.parse import urlencode
 
 import websockets
+from websockets.legacy import protocol
 
 from .channel import Channel, ChannelEvents
 from .message import Message
@@ -16,15 +17,16 @@ class SocketClosedError(Exception):
 
 
 class SentMessage:
-    def __init__(self, cb=None):
-        self.cb = cb
+    def __init__(self, callback=None):
+        self.callback = callback
         self.event = Event()
         self.message = None
 
     def respond(self, message):
         self.message = message
-        if self.cb:
-            self.cb(message)
+        if self.callback:
+            self.callback(message)
+
         self.event.set()
 
     def wait_for_response(self):
@@ -41,8 +43,8 @@ class ClientConnection(SentMessage):
         try:
             self.client.on_open(self.client)
             self.event.set()
-        except Exception as e:
-            self.respond(e)
+        except Exception as exception:
+            self.respond(exception)
 
     def respond(self, message):
         if not message and self.client.on_open:
@@ -54,6 +56,7 @@ class ClientConnection(SentMessage):
         self.event.wait()
         if self.message:
             raise self.message
+
         return True
 
     def is_set(self):
@@ -86,6 +89,7 @@ class Client:
         qs_params = {'vsn': '1.0.0', **params}
         if url:
             self._url = url
+
         self.url = f'{self._url}?{urlencode(qs_params)}'
 
     async def _listen(self, websocket):
@@ -100,13 +104,14 @@ class Client:
 
     async def _broadcast(self, websocket, send_queue):
         try:
-            while websocket.state == websockets.protocol.State.OPEN:
+            while websocket.state == protocol.State.OPEN:
                 message = await send_queue.get()
                 if message:
                     await websocket.send(message)
+
                 send_queue.task_done()
         except Exception:
-            logging.error('phxsocket: FATAL ERROR: ' + traceback.format_exc())
+            logging.exception('phxsocket: FATAL ERROR: ')
 
     async def _run(self, loop, send_queue, connect_evt, shutdown_evt):
         async with websockets.connect(self.url) as websocket:
@@ -131,11 +136,11 @@ class Client:
             loop.run_until_complete(
                 self._run(loop, self._send_queue, connect_evt, self._shutdown_evt),
             )
-        except Exception as e:
+        except Exception as exception:
             if not connect_evt.is_set():
-                connect_evt.respond(e)
+                connect_evt.respond(exception)
             elif self.on_error:
-                self.on_error(self, e)
+                self.on_error(self, exception)
             else:
                 logging.error('phxsocket: ' + traceback.format_exc())
         finally:
@@ -189,11 +194,11 @@ class Client:
         if self.on_message:
             Thread(target=self.on_message, args=[message], daemon=True).start()
 
-    def push(self, topic, event, payload, cb=None, reply=False):
+    def push(self, topic, event, payload, callback=None, reply=False):
         if not self._loop:
             raise SocketClosedError
 
-        if type(event) == ChannelEvents:
+        if isinstance(event, ChannelEvents):
             event = event.value
 
         with self._ref_lock:
@@ -202,17 +207,20 @@ class Client:
 
         message = json.dumps({'event': event, 'topic': topic, 'ref': ref, 'payload': payload})
 
-        sent_message = SentMessage(cb)
+        sent_message = SentMessage(callback)
 
-        if reply or cb:
+        if reply or callback:
             self.messages[ref] = sent_message
 
         asyncio.run_coroutine_threadsafe(self._send(message), loop=self._loop)
 
-        if reply or cb:
+        if reply or callback:
             return sent_message
 
-    def channel(self, topic, params={}):
+    def channel(self, topic, params=None):
+        if params is None:
+            params = {}
+
         if topic not in self.channels:
             channel = Channel(self, topic, params)
             self.channels[topic] = channel

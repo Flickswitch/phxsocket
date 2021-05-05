@@ -39,12 +39,12 @@ class Channel:
         except Exception:
             return False, traceback.format_exc()
 
-    def push(self, event, payload, cb=None, reply=False):
-        msg = self.socket.push(self.topic, event, payload, cb, reply)
+    def push(self, event, payload, callback=None, reply=False):
+        msg = self.socket.push(self.topic, event, payload, callback, reply)
         return msg
 
-    def on(self, event, cb):
-        self.events[event] = cb
+    def on(self, event, callback):
+        self.events[event] = callback
 
     def receive(self, socket, message):
         if message.event == ChannelEvents.close.value:
@@ -53,5 +53,6 @@ class Channel:
         else:
             if message.event in self.events:
                 self.events[message.event](message.payload)
-            if self.on_message:
+
+            if self.on_message is not None:
                 self.on_message(socket, message.event, message.payload)
