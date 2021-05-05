@@ -1,6 +1,4 @@
-from . import client
-from . import channel
-
-from .message import Message
-from .client import Client
+from . import channel, client
 from .channel import Channel
+from .client import Client
+from .message import Message
