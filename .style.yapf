@@ -1,6 +1,5 @@
 [style]
 based_on_style = facebook
-prefer_single_quotes = True
 
 # The column limit.
 column_limit=100
