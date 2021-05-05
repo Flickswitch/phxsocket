@@ -36,7 +36,7 @@ class Channel:
         leave = self.socket.push(self.topic, ChannelEvents.leave, self.params, reply=True)
         try:
             return True, leave.response()
-        except:
+        except Exception:
             return False, traceback.format_exc()
 
     def push(self, event, payload, cb=None, reply=False):
